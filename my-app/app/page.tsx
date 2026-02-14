@@ -40,18 +40,33 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [summaryText, setSummaryText] = useState<string | null>(null);
+  const [summaryTarget, setSummaryTarget] = useState<string | null>(null);
+  const [isSummarizing, setIsSummarizing] = useState(false);
 
   const totalSize = useMemo(() => {
     return files.reduce((acc, item) => acc + (item.size ?? 0), 0);
   }, [files]);
 
+  async function readJsonSafely(res: Response) {
+    const text = await res.text();
+    if (!text) {
+      return null;
+    }
+    try {
+      return JSON.parse(text);
+    } catch {
+      return null;
+    }
+  }
+
   async function fetchFiles() {
     setIsLoading(true);
     try {
       const res = await fetch("/api/files", { cache: "no-store" });
-      const data = await res.json();
-      if (!data.ok) {
-        throw new Error(data.error ?? "Failed to load files.");
+      const data = await readJsonSafely(res);
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.error ?? "Failed to load files.");
       }
       setFiles(data.items ?? []);
       setStatus("Library synced.");
@@ -82,9 +97,9 @@ export default function Home() {
         method: "POST",
         body: formData,
       });
-      const data = await res.json();
-      if (!data.ok) {
-        throw new Error(data.error ?? "Upload failed.");
+      const data = await readJsonSafely(res);
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.error ?? "Upload failed.");
       }
       setSelectedFile(null);
       await fetchFiles();
@@ -101,9 +116,9 @@ export default function Home() {
     setStatus("Preparing download link...");
     try {
       const res = await fetch(`/api/files?download=${encodeURIComponent(path)}`);
-      const data = await res.json();
-      if (!data.ok) {
-        throw new Error(data.error ?? "Download failed.");
+      const data = await readJsonSafely(res);
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.error ?? "Download failed.");
       }
       window.open(data.url, "_blank", "noopener,noreferrer");
       setStatus("Download link ready.");
@@ -121,15 +136,41 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path }),
       });
-      const data = await res.json();
-      if (!data.ok) {
-        throw new Error(data.error ?? "Delete failed.");
+      const data = await readJsonSafely(res);
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.error ?? "Delete failed.");
       }
       await fetchFiles();
       setStatus("File removed.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
       setStatus(message);
+    }
+  }
+
+  async function handleSummarize(path: string, name: string) {
+    setIsSummarizing(true);
+    setSummaryTarget(path);
+    setSummaryText(null);
+    setStatus(`Summarizing ${name}...`);
+
+    try {
+      const res = await fetch("/api/summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+      const data = await readJsonSafely(res);
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.error ?? "Summary failed.");
+      }
+      setSummaryText(data.summary ?? "");
+      setStatus("Summary ready.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      setStatus(message);
+    } finally {
+      setIsSummarizing(false);
     }
   }
 
@@ -221,6 +262,15 @@ export default function Home() {
                 <div className="file-actions">
                   <button
                     className="btn btn-outline"
+                    onClick={() => handleSummarize(file.path, file.name)}
+                    disabled={isSummarizing && summaryTarget === file.path}
+                  >
+                    {isSummarizing && summaryTarget === file.path
+                      ? "Summarizing..."
+                      : "Summarize"}
+                  </button>
+                  <button
+                    className="btn btn-outline"
                     onClick={() => handleDownload(file.path)}
                   >
                     Download
@@ -234,6 +284,23 @@ export default function Home() {
                 </div>
               </article>
             ))}
+          </div>
+        )}
+        {summaryTarget && summaryText !== null && (
+          <div className="summary-panel">
+            <div className="summary-header">
+              <h3 className="summary-title">Summary</h3>
+              <button
+                className="btn btn-ghost"
+                onClick={() => {
+                  setSummaryTarget(null);
+                  setSummaryText(null);
+                }}
+              >
+                Clear
+              </button>
+            </div>
+            <p className="summary-text">{summaryText}</p>
           </div>
         )}
       </section>

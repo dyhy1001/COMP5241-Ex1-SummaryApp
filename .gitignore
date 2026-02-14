@@ -1,0 +1,25 @@
+# Next.js build outputs
+.next/            # Production build output
+out/              # Static export output
+build/            # Alternative build folder
+
+# Node.js dependencies
+node_modules/     # External packages installed by npm (can be re-downloaded)
+
+# Environment files containing secrets
+.env
+.env*.local
+!.env.example
+
+# Testing
+coverage/
+
+# OS and editor specific files
+.DS_Store         # macOS folder metadata
+.vscode/          # VS Code settings (optional—team preference)
+.vercel           # Vercel CLI local cache
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import pdf from "pdf-parse";
-import { getSupabaseBucket, getSupabaseServerClient } from "@/lib/supabaseServer";
+import {
+  getDocumentsTable,
+  getSupabaseBucket,
+  getSupabaseServerClient,
+} from "@/lib/supabaseServer";
 
 export const runtime = "nodejs";
 
@@ -27,6 +31,7 @@ export async function POST(req: Request) {
 
   const supabase = getSupabaseServerClient();
   const bucket = getSupabaseBucket();
+  const documentsTable = getDocumentsTable();
 
   const { data: signed, error: signedError } = await supabase.storage
     .from(bucket)
@@ -107,6 +112,42 @@ export async function POST(req: Request) {
       { ok: false, error: "No summary returned from the AI." },
       { status: 500 }
     );
+  }
+
+  const summaryTimestamp = new Date().toISOString();
+  const { data: updatedRows, error: updateError } = await supabase
+    .from(documentsTable)
+    .update({
+      summary_text: summary,
+      summary_updated_at: summaryTimestamp,
+    })
+    .eq("storage_path", path)
+    .select("id");
+
+  if (updateError) {
+    return NextResponse.json(
+      { ok: false, error: updateError.message },
+      { status: 500 }
+    );
+  }
+
+  if (!updatedRows || updatedRows.length === 0) {
+    const documentName = path.split("/").pop() ?? "document.pdf";
+    const { error: insertError } = await supabase
+      .from(documentsTable)
+      .insert({
+        document_name: documentName,
+        storage_path: path,
+        summary_text: summary,
+        summary_updated_at: summaryTimestamp,
+      });
+
+    if (insertError) {
+      return NextResponse.json(
+        { ok: false, error: insertError.message },
+        { status: 500 }
+      );
+    }
   }
 
   return NextResponse.json({ ok: true, summary });

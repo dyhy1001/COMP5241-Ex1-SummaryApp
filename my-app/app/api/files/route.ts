@@ -47,12 +47,49 @@ export async function GET(req: Request) {
     );
   }
 
+  const documentsTable = getDocumentsTable();
+  const storagePaths = (data ?? []).map((item) => `uploads/${item.name}`);
+  let documentsByPath = new Map<string, {
+    document_name: string | null;
+    summary_text: string | null;
+    summary_updated_at: string | null;
+  }>();
+
+  if (storagePaths.length > 0) {
+    const { data: documents, error: documentsError } = await supabase
+      .from(documentsTable)
+      .select("storage_path, document_name, summary_text, summary_updated_at")
+      .in("storage_path", storagePaths);
+
+    if (documentsError) {
+      return NextResponse.json(
+        { ok: false, error: documentsError.message },
+        { status: 500 }
+      );
+    }
+
+    documentsByPath = new Map(
+      (documents ?? []).map((doc) => [
+        doc.storage_path,
+        {
+          document_name: doc.document_name ?? null,
+          summary_text: doc.summary_text ?? null,
+          summary_updated_at: doc.summary_updated_at ?? null,
+        },
+      ])
+    );
+  }
+
   const items = (data ?? []).map((item) => ({
-    name: item.name,
+    name:
+      documentsByPath.get(`uploads/${item.name}`)?.document_name ?? item.name,
     path: `uploads/${item.name}`,
     size: item.metadata?.size ?? null,
     created_at: item.created_at ?? null,
     updated_at: item.updated_at ?? null,
+    summary: documentsByPath.get(`uploads/${item.name}`)?.summary_text ?? null,
+    summary_updated_at:
+      documentsByPath.get(`uploads/${item.name}`)?.summary_updated_at ?? null,
   }));
 
   return NextResponse.json({ ok: true, items });
@@ -115,6 +152,7 @@ export async function POST(req: Request) {
 export async function DELETE(req: Request) {
   const supabase = getSupabaseServerClient();
   const bucket = getSupabaseBucket();
+  const documentsTable = getDocumentsTable();
   const body = await req.json();
   const path = body?.path;
 
@@ -130,6 +168,18 @@ export async function DELETE(req: Request) {
   if (error) {
     return NextResponse.json(
       { ok: false, error: error.message },
+      { status: 500 }
+    );
+  }
+
+  const { error: dbError } = await supabase
+    .from(documentsTable)
+    .delete()
+    .eq("storage_path", path);
+
+  if (dbError) {
+    return NextResponse.json(
+      { ok: false, error: dbError.message },
       { status: 500 }
     );
   }

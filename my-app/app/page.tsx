@@ -8,6 +8,7 @@ type StorageFile = {
   size: number | null;
   created_at: string | null;
   updated_at: string | null;
+  tag?: string[] | null;
   summary?: string | null;
   summary_updated_at?: string | null;
 };
@@ -42,12 +43,19 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadName, setUploadName] = useState("");
+  const [uploadTags, setUploadTags] = useState("");
   const [summaryText, setSummaryText] = useState<string | null>(null);
   const [summaryTarget, setSummaryTarget] = useState<string | null>(null);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [editingPath, setEditingPath] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState("");
+  const [editingTag, setEditingTag] = useState("");
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   const totalSize = useMemo(() => {
     return files.reduce((acc, item) => acc + (item.size ?? 0), 0);
@@ -61,6 +69,19 @@ export default function Home() {
   }, [files, selectedPath]);
 
   const summaryDisplay = summaryText ?? selectedDocument?.summary ?? null;
+
+  const filteredFiles = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) {
+      return files;
+    }
+    return files.filter((file) => {
+      const nameMatch = file.name.toLowerCase().includes(query);
+      const tags = Array.isArray(file.tag) ? file.tag : [];
+      const tagMatch = tags.some((tag) => tag.toLowerCase().includes(query));
+      return nameMatch || tagMatch;
+    });
+  }, [files, searchQuery]);
 
   async function readJsonSafely(res: Response) {
     const text = await res.text();
@@ -107,6 +128,8 @@ export default function Home() {
     try {
       const formData = new FormData();
       formData.append("file", uploadFile);
+      formData.append("documentName", uploadName.trim());
+      formData.append("tags", uploadTags.trim());
       const res = await fetch("/api/files", {
         method: "POST",
         body: formData,
@@ -116,6 +139,8 @@ export default function Home() {
         throw new Error(data?.error ?? "Upload failed.");
       }
       setUploadFile(null);
+      setUploadName("");
+      setUploadTags("");
       await fetchFiles();
       setStatus("Upload complete.");
     } catch (error) {
@@ -213,6 +238,52 @@ export default function Home() {
     }
   }
 
+  function startEditing(file: StorageFile) {
+    setEditingPath(file.path);
+    setEditingName(file.name);
+    const tagText = Array.isArray(file.tag) ? file.tag.join(", ") : "";
+    setEditingTag(tagText);
+  }
+
+  function cancelEditing() {
+    setEditingPath(null);
+    setEditingName("");
+    setEditingTag("");
+  }
+
+  async function saveEditing(path: string) {
+    if (!editingName.trim()) {
+      setStatus("Document title cannot be empty.");
+      return;
+    }
+    setIsSavingEdit(true);
+    setStatus("Saving changes...");
+
+    try {
+      const res = await fetch("/api/files", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path,
+          documentName: editingName,
+          tag: editingTag,
+        }),
+      });
+      const data = await readJsonSafely(res);
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.error ?? "Update failed.");
+      }
+      await fetchFiles();
+      setStatus("Document updated.");
+      cancelEditing();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      setStatus(message);
+    } finally {
+      setIsSavingEdit(false);
+    }
+  }
+
   return (
     <div className="page">
       <header className="hero">
@@ -254,11 +325,35 @@ export default function Home() {
                 <input
                   type="file"
                   accept="application/pdf"
-                  onChange={(event) =>
-                    setUploadFile(event.target.files?.[0] ?? null)
-                  }
+                  onChange={(event) => {
+                    const file = event.target.files?.[0] ?? null;
+                    setUploadFile(file);
+                    if (file) {
+                      setUploadName(file.name);
+                    }
+                  }}
                 />
                 <span>{uploadFile ? uploadFile.name : "Choose PDF"}</span>
+              </label>
+              <label className="field">
+                <span className="field-label">Document title</span>
+                <input
+                  className="text-input"
+                  type="text"
+                  placeholder="Enter a display name"
+                  value={uploadName}
+                  onChange={(event) => setUploadName(event.target.value)}
+                />
+              </label>
+              <label className="field">
+                <span className="field-label">Tags</span>
+                <input
+                  className="text-input"
+                  type="text"
+                  placeholder="Add tags separated by commas"
+                  value={uploadTags}
+                  onChange={(event) => setUploadTags(event.target.value)}
+                />
               </label>
               <button
                 className="btn btn-primary"
@@ -284,29 +379,100 @@ export default function Home() {
                 Select a PDF to preview or run the summarizer.
               </p>
             </div>
-            {files.length === 0 ? (
+            <label className="search-field">
+              <span className="field-label">Search</span>
+              <input
+                className="text-input"
+                type="search"
+                placeholder="Search by title or tag"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+              />
+            </label>
+            {filteredFiles.length === 0 ? (
               <div className="empty-state">
-                <p>No PDFs yet. Upload a document to get started.</p>
+                <p>
+                  {files.length === 0
+                    ? "No PDFs yet. Upload a document to get started."
+                    : "No matches. Try a different search."}
+                </p>
               </div>
             ) : (
               <div className="library-list">
-                {files.map((file) => (
+                {filteredFiles.map((file) => (
                   <article
                     key={file.path}
                     className={`library-item${
                       selectedPath === file.path ? " is-active" : ""
                     }`}
                   >
-                    <button
-                      className="library-select"
-                      onClick={() => handleSelect(file.path, file.name)}
-                    >
-                      <span className="library-title">{file.name}</span>
-                      <span className="library-meta">
-                        {formatBytes(file.size)} · {formatDate(file.updated_at)}
-                      </span>
-                    </button>
+                    {editingPath === file.path ? (
+                      <div className="edit-block">
+                        <label className="field">
+                          <span className="field-label">Document title</span>
+                          <input
+                            className="text-input"
+                            type="text"
+                            value={editingName}
+                            onChange={(event) =>
+                              setEditingName(event.target.value)
+                            }
+                          />
+                        </label>
+                        <label className="field">
+                          <span className="field-label">Tags</span>
+                          <input
+                            className="text-input"
+                            type="text"
+                            value={editingTag}
+                            onChange={(event) =>
+                              setEditingTag(event.target.value)
+                            }
+                          />
+                        </label>
+                        <div className="edit-actions">
+                          <button
+                            className="btn btn-outline btn-small"
+                            onClick={() => saveEditing(file.path)}
+                            disabled={isSavingEdit}
+                          >
+                            {isSavingEdit ? "Saving..." : "Save"}
+                          </button>
+                          <button
+                            className="btn btn-ghost btn-small"
+                            onClick={cancelEditing}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        className="library-select"
+                        onClick={() => handleSelect(file.path, file.name)}
+                      >
+                        <span className="library-title">{file.name}</span>
+                        <span className="library-meta">
+                          {formatBytes(file.size)} · {formatDate(file.updated_at)}
+                        </span>
+                        {Array.isArray(file.tag) && file.tag.length > 0 && (
+                          <span className="tag-row">
+                            {file.tag.map((tag) => (
+                              <span key={tag} className="tag-pill">
+                                #{tag}
+                              </span>
+                            ))}
+                          </span>
+                        )}
+                      </button>
+                    )}
                     <div className="library-actions">
+                      <button
+                        className="btn btn-ghost btn-small"
+                        onClick={() => startEditing(file)}
+                      >
+                        Edit
+                      </button>
                       <button
                         className="btn btn-outline btn-small"
                         onClick={() => handleSummarize(file.path, file.name)}

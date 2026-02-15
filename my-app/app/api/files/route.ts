@@ -11,6 +11,59 @@ function sanitizeFileName(name: string) {
   return name.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
+function normalizePdfName(name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    return "document.pdf";
+  }
+  const safeName = sanitizeFileName(trimmed);
+  return safeName.toLowerCase().endsWith(".pdf") ? safeName : `${safeName}.pdf`;
+}
+
+function parseTags(rawTags: string | null) {
+  if (!rawTags) {
+    return [];
+  }
+  const unique = new Set(
+    rawTags
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean)
+  );
+  return Array.from(unique);
+}
+
+function normalizeTagValue(value: unknown) {
+  if (Array.isArray(value)) {
+    return value
+      .filter((item): item is string => typeof item === "string")
+      .map((item) => item.replace(/^"|"$/g, "").trim())
+      .filter(Boolean);
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return [];
+    }
+    if ((trimmed.startsWith("[") && trimmed.endsWith("]")) ||
+        (trimmed.startsWith("{") && trimmed.endsWith("}"))) {
+      try {
+        const jsonParsed = JSON.parse(trimmed);
+        if (Array.isArray(jsonParsed)) {
+          return jsonParsed
+            .filter((item): item is string => typeof item === "string")
+            .map((item) => item.replace(/^"|"$/g, "").trim())
+            .filter(Boolean);
+        }
+      } catch {
+        // fall through to comma parsing
+      }
+    }
+    return parseTags(trimmed);
+  }
+  return [];
+}
+
 export async function GET(req: Request) {
   const supabase = getSupabaseServerClient();
   const bucket = getSupabaseBucket();
@@ -51,6 +104,7 @@ export async function GET(req: Request) {
   const storagePaths = (data ?? []).map((item) => `uploads/${item.name}`);
   let documentsByPath = new Map<string, {
     document_name: string | null;
+    tag: string[] | null;
     summary_text: string | null;
     summary_updated_at: string | null;
   }>();
@@ -58,7 +112,7 @@ export async function GET(req: Request) {
   if (storagePaths.length > 0) {
     const { data: documents, error: documentsError } = await supabase
       .from(documentsTable)
-      .select("storage_path, document_name, summary_text, summary_updated_at")
+      .select("storage_path, document_name, tag, summary_text, summary_updated_at")
       .in("storage_path", storagePaths);
 
     if (documentsError) {
@@ -73,6 +127,7 @@ export async function GET(req: Request) {
         doc.storage_path,
         {
           document_name: doc.document_name ?? null,
+          tag: normalizeTagValue(doc.tag),
           summary_text: doc.summary_text ?? null,
           summary_updated_at: doc.summary_updated_at ?? null,
         },
@@ -87,6 +142,7 @@ export async function GET(req: Request) {
     size: item.metadata?.size ?? null,
     created_at: item.created_at ?? null,
     updated_at: item.updated_at ?? null,
+    tag: documentsByPath.get(`uploads/${item.name}`)?.tag ?? [],
     summary: documentsByPath.get(`uploads/${item.name}`)?.summary_text ?? null,
     summary_updated_at:
       documentsByPath.get(`uploads/${item.name}`)?.summary_updated_at ?? null,
@@ -101,6 +157,8 @@ export async function POST(req: Request) {
   const documentsTable = getDocumentsTable();
   const formData = await req.formData();
   const file = formData.get("file");
+  const documentNameRaw = formData.get("documentName");
+  const tagsRaw = formData.get("tags");
 
   if (!(file instanceof File)) {
     return NextResponse.json(
@@ -109,8 +167,13 @@ export async function POST(req: Request) {
     );
   }
 
-  const safeName = sanitizeFileName(file.name || "document.pdf");
-  const path = `uploads/${safeName}`;
+  const desiredName =
+    typeof documentNameRaw === "string" && documentNameRaw.trim()
+      ? documentNameRaw
+      : file.name || "document.pdf";
+  const finalName = normalizePdfName(desiredName);
+  const path = `uploads/${finalName}`;
+  const tag = parseTags(typeof tagsRaw === "string" ? tagsRaw : null);
 
   const { error } = await supabase.storage
     .from(bucket)
@@ -129,8 +192,9 @@ export async function POST(req: Request) {
   const { error: dbError, data: documentRow } = await supabase
     .from(documentsTable)
     .insert({
-      document_name: file.name || safeName,
+      document_name: finalName,
       storage_path: path,
+      tag,
     })
     .select("id")
     .single();
@@ -180,6 +244,48 @@ export async function DELETE(req: Request) {
   if (dbError) {
     return NextResponse.json(
       { ok: false, error: dbError.message },
+      { status: 500 }
+    );
+  }
+
+  return NextResponse.json({ ok: true });
+}
+
+export async function PATCH(req: Request) {
+  const supabase = getSupabaseServerClient();
+  const documentsTable = getDocumentsTable();
+  const body = await req.json();
+  const path = body?.path;
+  const documentName = body?.documentName;
+  const tagRaw = body?.tag;
+
+  if (!path || typeof path !== "string") {
+    return NextResponse.json(
+      { ok: false, error: "Missing file path." },
+      { status: 400 }
+    );
+  }
+
+  if (typeof documentName !== "string" || !documentName.trim()) {
+    return NextResponse.json(
+      { ok: false, error: "Missing document name." },
+      { status: 400 }
+    );
+  }
+
+  const tag = normalizeTagValue(tagRaw);
+
+  const { error } = await supabase
+    .from(documentsTable)
+    .update({
+      document_name: documentName.trim(),
+      tag,
+    })
+    .eq("storage_path", path);
+
+  if (error) {
+    return NextResponse.json(
+      { ok: false, error: error.message },
       { status: 500 }
     );
   }

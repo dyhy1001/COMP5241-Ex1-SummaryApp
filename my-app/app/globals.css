@@ -154,6 +154,36 @@ p {
   grid-template-columns: 1fr;
 }
 
+.field,
+.search-field {
+  display: grid;
+  gap: 6px;
+}
+
+.field-label {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--ink-500);
+  font-weight: 600;
+}
+
+.text-input {
+  border-radius: 12px;
+  border: 1px solid rgba(20, 122, 140, 0.45);
+  box-shadow: inset 0 0 0 1px rgba(20, 122, 140, 0.12);
+  padding: 10px 12px;
+  font-size: 0.95rem;
+  font-family: var(--font-body), "Segoe UI", sans-serif;
+  background: #ffffff;
+  color: var(--ink-900);
+}
+
+.text-input:focus {
+  outline: 2px solid rgba(20, 122, 140, 0.35);
+  border-color: rgba(20, 122, 140, 0.5);
+}
+
 .file-input {
   border: 1px dashed rgba(15, 93, 109, 0.5);
   border-radius: 14px;
@@ -291,6 +321,17 @@ p {
   box-shadow: inset 0 0 0 1px rgba(232, 238, 244, 0.9);
 }
 
+.edit-block {
+  display: grid;
+  gap: 12px;
+}
+
+.edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .library-item.is-active {
   box-shadow: inset 0 0 0 1px rgba(20, 122, 140, 0.6);
   background: rgba(20, 122, 140, 0.08);
@@ -316,6 +357,21 @@ p {
 .library-meta {
   font-size: 0.85rem;
   color: var(--ink-500);
+}
+
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tag-pill {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(244, 178, 67, 0.18);
+  color: var(--ink-700);
+  font-size: 0.75rem;
+  font-weight: 600;
 }
 
 .library-actions {

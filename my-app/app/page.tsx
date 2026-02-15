@@ -8,6 +8,8 @@ type StorageFile = {
   size: number | null;
   created_at: string | null;
   updated_at: string | null;
+  summary?: string | null;
+  summary_updated_at?: string | null;
 };
 
 function formatBytes(value: number | null) {
@@ -39,14 +41,26 @@ export default function Home() {
   const [status, setStatus] = useState("Ready");
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [summaryText, setSummaryText] = useState<string | null>(null);
   const [summaryTarget, setSummaryTarget] = useState<string | null>(null);
   const [isSummarizing, setIsSummarizing] = useState(false);
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
 
   const totalSize = useMemo(() => {
     return files.reduce((acc, item) => acc + (item.size ?? 0), 0);
   }, [files]);
+
+  const selectedDocument = useMemo(() => {
+    if (!selectedPath) {
+      return null;
+    }
+    return files.find((file) => file.path === selectedPath) ?? null;
+  }, [files, selectedPath]);
+
+  const summaryDisplay = summaryText ?? selectedDocument?.summary ?? null;
 
   async function readJsonSafely(res: Response) {
     const text = await res.text();
@@ -83,7 +97,7 @@ export default function Home() {
   }, []);
 
   async function handleUpload() {
-    if (!selectedFile) {
+    if (!uploadFile) {
       setStatus("Choose a PDF before uploading.");
       return;
     }
@@ -92,7 +106,7 @@ export default function Home() {
 
     try {
       const formData = new FormData();
-      formData.append("file", selectedFile);
+      formData.append("file", uploadFile);
       const res = await fetch("/api/files", {
         method: "POST",
         body: formData,
@@ -101,7 +115,7 @@ export default function Home() {
       if (!res.ok || !data?.ok) {
         throw new Error(data?.error ?? "Upload failed.");
       }
-      setSelectedFile(null);
+      setUploadFile(null);
       await fetchFiles();
       setStatus("Upload complete.");
     } catch (error) {
@@ -149,6 +163,7 @@ export default function Home() {
   }
 
   async function handleSummarize(path: string, name: string) {
+    setSelectedPath(path);
     setIsSummarizing(true);
     setSummaryTarget(path);
     setSummaryText(null);
@@ -165,12 +180,36 @@ export default function Home() {
         throw new Error(data?.error ?? "Summary failed.");
       }
       setSummaryText(data.summary ?? "");
+      await fetchFiles();
       setStatus("Summary ready.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
       setStatus(message);
     } finally {
       setIsSummarizing(false);
+    }
+  }
+
+  async function handleSelect(path: string, name: string) {
+    setSelectedPath(path);
+    setSummaryText(null);
+    setPreviewUrl(null);
+    setIsPreviewLoading(true);
+    setStatus(`Loading preview for ${name}...`);
+
+    try {
+      const res = await fetch(`/api/files?download=${encodeURIComponent(path)}`);
+      const data = await readJsonSafely(res);
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.error ?? "Preview failed.");
+      }
+      setPreviewUrl(data.url);
+      setStatus("Preview ready.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      setStatus(message);
+    } finally {
+      setIsPreviewLoading(false);
     }
   }
 
@@ -201,109 +240,155 @@ export default function Home() {
         </div>
       </header>
 
-      <section className="panel upload-panel">
-        <div>
-          <h2>Upload PDF</h2>
-          <p className="panel-subtitle">
-            Files are stored in your Supabase bucket and listed below.
-          </p>
-        </div>
-        <div className="upload-controls">
-          <label className="file-input">
-            <input
-              type="file"
-              accept="application/pdf"
-              onChange={(event) =>
-                setSelectedFile(event.target.files?.[0] ?? null)
-              }
-            />
-            <span>{selectedFile ? selectedFile.name : "Choose PDF"}</span>
-          </label>
-          <button
-            className="btn btn-primary"
-            onClick={handleUpload}
-            disabled={isUploading}
-          >
-            {isUploading ? "Uploading..." : "Upload"}
-          </button>
-          <button
-            className="btn btn-ghost"
-            onClick={fetchFiles}
-            disabled={isLoading}
-          >
-            {isLoading ? "Refreshing..." : "Refresh"}
-          </button>
-        </div>
-      </section>
-
-      <section className="panel files-panel">
-        <div className="files-header">
-          <div>
-            <h2>Document library</h2>
-            <p className="panel-subtitle">
-              Use download links for the summarizer or remove outdated PDFs.
-            </p>
-          </div>
-        </div>
-        {files.length === 0 ? (
-          <div className="empty-state">
-            <p>No PDFs yet. Upload a document to get started.</p>
-          </div>
-        ) : (
-          <div className="file-grid">
-            {files.map((file) => (
-              <article key={file.path} className="file-card">
-                <div>
-                  <p className="file-name">{file.name}</p>
-                  <p className="file-meta">
-                    {formatBytes(file.size)} · {formatDate(file.updated_at)}
-                  </p>
-                </div>
-                <div className="file-actions">
-                  <button
-                    className="btn btn-outline"
-                    onClick={() => handleSummarize(file.path, file.name)}
-                    disabled={isSummarizing && summaryTarget === file.path}
-                  >
-                    {isSummarizing && summaryTarget === file.path
-                      ? "Summarizing..."
-                      : "Summarize"}
-                  </button>
-                  <button
-                    className="btn btn-outline"
-                    onClick={() => handleDownload(file.path)}
-                  >
-                    Download
-                  </button>
-                  <button
-                    className="btn btn-danger"
-                    onClick={() => handleDelete(file.path)}
-                  >
-                    Delete
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
-        )}
-        {summaryTarget && summaryText !== null && (
-          <div className="summary-panel">
-            <div className="summary-header">
-              <h3 className="summary-title">Summary</h3>
+      <div className="main-grid">
+        <div className="left-column">
+          <section className="panel upload-panel">
+            <div>
+              <h2>Upload PDF</h2>
+              <p className="panel-subtitle">
+                Files are stored in your Supabase bucket and listed below.
+              </p>
+            </div>
+            <div className="upload-controls">
+              <label className="file-input">
+                <input
+                  type="file"
+                  accept="application/pdf"
+                  onChange={(event) =>
+                    setUploadFile(event.target.files?.[0] ?? null)
+                  }
+                />
+                <span>{uploadFile ? uploadFile.name : "Choose PDF"}</span>
+              </label>
+              <button
+                className="btn btn-primary"
+                onClick={handleUpload}
+                disabled={isUploading}
+              >
+                {isUploading ? "Uploading..." : "Upload"}
+              </button>
               <button
                 className="btn btn-ghost"
-                onClick={() => {
-                  setSummaryTarget(null);
-                  setSummaryText(null);
-                }}
+                onClick={fetchFiles}
+                disabled={isLoading}
               >
-                Clear
+                {isLoading ? "Refreshing..." : "Refresh"}
               </button>
             </div>
-            <p className="summary-text">{summaryText}</p>
-          </div>
-        )}
-      </section>
+          </section>
+
+          <section className="panel library-panel">
+            <div>
+              <h2>Document library</h2>
+              <p className="panel-subtitle">
+                Select a PDF to preview or run the summarizer.
+              </p>
+            </div>
+            {files.length === 0 ? (
+              <div className="empty-state">
+                <p>No PDFs yet. Upload a document to get started.</p>
+              </div>
+            ) : (
+              <div className="library-list">
+                {files.map((file) => (
+                  <article
+                    key={file.path}
+                    className={`library-item${
+                      selectedPath === file.path ? " is-active" : ""
+                    }`}
+                  >
+                    <button
+                      className="library-select"
+                      onClick={() => handleSelect(file.path, file.name)}
+                    >
+                      <span className="library-title">{file.name}</span>
+                      <span className="library-meta">
+                        {formatBytes(file.size)} · {formatDate(file.updated_at)}
+                      </span>
+                    </button>
+                    <div className="library-actions">
+                      <button
+                        className="btn btn-outline btn-small"
+                        onClick={() => handleSummarize(file.path, file.name)}
+                        disabled={isSummarizing && summaryTarget === file.path}
+                      >
+                        {isSummarizing && summaryTarget === file.path
+                          ? "Summarizing..."
+                          : "Summarize"}
+                      </button>
+                      <button
+                        className="btn btn-outline btn-small"
+                        onClick={() => handleDownload(file.path)}
+                      >
+                        Download
+                      </button>
+                      <button
+                        className="btn btn-danger btn-small"
+                        onClick={() => handleDelete(file.path)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+
+        <div className="right-column">
+          <section className="panel preview-panel">
+            <div>
+              <h2>Preview</h2>
+              <p className="panel-subtitle">
+                {selectedDocument
+                  ? `Viewing ${selectedDocument.name}`
+                  : "Select a document to preview."}
+              </p>
+            </div>
+            <div className="preview-shell">
+              {isPreviewLoading ? (
+                <div className="preview-placeholder">Loading preview...</div>
+              ) : previewUrl ? (
+                <iframe
+                  className="preview-frame"
+                  src={previewUrl}
+                  title="PDF preview"
+                />
+              ) : (
+                <div className="preview-placeholder">
+                  Choose a document from the library to see it here.
+                </div>
+              )}
+            </div>
+          </section>
+
+          {summaryDisplay && (
+            <div className="summary-panel">
+              <div className="summary-header">
+                <div>
+                  <h3 className="summary-title">Summary</h3>
+                  {selectedDocument?.summary_updated_at && (
+                    <p className="summary-meta">
+                      Updated {formatDate(selectedDocument.summary_updated_at)}
+                    </p>
+                  )}
+                </div>
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => {
+                    setSummaryTarget(null);
+                    setSummaryText(null);
+                  }}
+                >
+                  Clear
+                </button>
+              </div>
+              <p className="summary-text">{summaryDisplay}</p>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

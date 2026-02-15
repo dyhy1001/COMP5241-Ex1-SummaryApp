@@ -9,6 +9,7 @@ type StorageFile = {
   created_at: string | null;
   updated_at: string | null;
   tag?: string[] | null;
+  note_taking?: string | null;
   summary?: string | null;
   summary_updated_at?: string | null;
 };
@@ -51,11 +52,18 @@ export default function Home() {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewExpiresAt, setPreviewExpiresAt] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [editingPath, setEditingPath] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [editingTag, setEditingTag] = useState("");
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [activeView, setActiveView] = useState<
+    "preview" | "summary" | "note"
+  >("preview");
+  const [noteDraft, setNoteDraft] = useState("");
+  const [isSavingNote, setIsSavingNote] = useState(false);
 
   const totalSize = useMemo(() => {
     return files.reduce((acc, item) => acc + (item.size ?? 0), 0);
@@ -219,6 +227,8 @@ export default function Home() {
     setSelectedPath(path);
     setSummaryText(null);
     setPreviewUrl(null);
+    setPreviewError(null);
+    setPreviewExpiresAt(null);
     setIsPreviewLoading(true);
     setStatus(`Loading preview for ${name}...`);
 
@@ -229,14 +239,32 @@ export default function Home() {
         throw new Error(data?.error ?? "Preview failed.");
       }
       setPreviewUrl(data.url);
+      setPreviewExpiresAt(Date.now() + 15000);
       setStatus("Preview ready.");
+      setActiveView("preview");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      setStatus(message);
+      setPreviewError("Preview link expired. Please reload the document.");
+      setStatus("Preview link expired.");
     } finally {
       setIsPreviewLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (!previewExpiresAt) {
+      return undefined;
+    }
+    const timeout = window.setTimeout(() => {
+      setPreviewUrl(null);
+      setPreviewError("Preview link expired. Please reload the document.");
+    }, Math.max(previewExpiresAt - Date.now(), 0));
+
+    return () => window.clearTimeout(timeout);
+  }, [previewExpiresAt]);
+
+  useEffect(() => {
+    setNoteDraft(selectedDocument?.note_taking ?? "");
+  }, [selectedDocument?.note_taking]);
 
   function startEditing(file: StorageFile) {
     setEditingPath(file.path);
@@ -281,6 +309,33 @@ export default function Home() {
       setStatus(message);
     } finally {
       setIsSavingEdit(false);
+    }
+  }
+
+  async function saveNote(path: string) {
+    setIsSavingNote(true);
+    setStatus("Saving note...");
+
+    try {
+      const res = await fetch("/api/files", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path,
+          note_taking: noteDraft,
+        }),
+      });
+      const data = await readJsonSafely(res);
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.error ?? "Note save failed.");
+      }
+      await fetchFiles();
+      setStatus("Note saved.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      setStatus(message);
+    } finally {
+      setIsSavingNote(false);
     }
   }
 
@@ -512,47 +567,105 @@ export default function Home() {
                   : "Select a document to preview."}
               </p>
             </div>
+            <div className="view-tabs">
+              <button
+                className={`tab-button${
+                  activeView === "preview" ? " is-active" : ""
+                }`}
+                onClick={() => {
+                  if (selectedDocument) {
+                    handleSelect(selectedDocument.path, selectedDocument.name);
+                  } else {
+                    setActiveView("preview");
+                  }
+                }}
+                disabled={!selectedDocument}
+              >
+                Preview document
+              </button>
+              <button
+                className={`tab-button${
+                  activeView === "summary" ? " is-active" : ""
+                }`}
+                onClick={() => setActiveView("summary")}
+                disabled={!summaryDisplay}
+              >
+                AI summary
+              </button>
+              <button
+                className={`tab-button${
+                  activeView === "note" ? " is-active" : ""
+                }`}
+                onClick={() => setActiveView("note")}
+                disabled={!selectedDocument}
+              >
+                Note taking
+              </button>
+            </div>
             <div className="preview-shell">
-              {isPreviewLoading ? (
-                <div className="preview-placeholder">Loading preview...</div>
-              ) : previewUrl ? (
-                <iframe
-                  className="preview-frame"
-                  src={previewUrl}
-                  title="PDF preview"
-                />
-              ) : (
-                <div className="preview-placeholder">
-                  Choose a document from the library to see it here.
+              {activeView === "preview" && (
+                <>
+                  {isPreviewLoading ? (
+                    <div className="preview-placeholder">Loading preview...</div>
+                  ) : previewError ? (
+                    <div className="preview-placeholder">
+                      {previewError}
+                    </div>
+                  ) : previewUrl ? (
+                    <iframe
+                      className="preview-frame"
+                      src={previewUrl}
+                      title="PDF preview"
+                    />
+                  ) : (
+                    <div className="preview-placeholder">
+                      Choose a document from the library to see it here.
+                    </div>
+                  )}
+                </>
+              )}
+              {activeView === "summary" && (
+                <div className="summary-panel summary-panel-inline">
+                  <div className="summary-header">
+                    <div>
+                      <h3 className="summary-title">Summary</h3>
+                      {selectedDocument?.summary_updated_at && (
+                        <p className="summary-meta">
+                          Updated {formatDate(selectedDocument.summary_updated_at)}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <p className="summary-text">
+                    {summaryDisplay ?? "No summary available yet."}
+                  </p>
+                </div>
+              )}
+              {activeView === "note" && (
+                <div className="note-panel">
+                  <div className="note-header">
+                    <h3 className="summary-title">Notes</h3>
+                    <button
+                      className="btn btn-outline btn-small"
+                      onClick={() =>
+                        selectedDocument && saveNote(selectedDocument.path)
+                      }
+                      disabled={isSavingNote || !selectedDocument}
+                    >
+                      {isSavingNote ? "Saving..." : "Save note"}
+                    </button>
+                  </div>
+                  <textarea
+                    className="note-textarea"
+                    placeholder="Write your notes here..."
+                    value={noteDraft}
+                    onChange={(event) => setNoteDraft(event.target.value)}
+                    rows={12}
+                  />
                 </div>
               )}
             </div>
           </section>
-
-          {summaryDisplay && (
-            <div className="summary-panel">
-              <div className="summary-header">
-                <div>
-                  <h3 className="summary-title">Summary</h3>
-                  {selectedDocument?.summary_updated_at && (
-                    <p className="summary-meta">
-                      Updated {formatDate(selectedDocument.summary_updated_at)}
-                    </p>
-                  )}
-                </div>
-                <button
-                  className="btn btn-ghost"
-                  onClick={() => {
-                    setSummaryTarget(null);
-                    setSummaryText(null);
-                  }}
-                >
-                  Clear
-                </button>
-              </div>
-              <p className="summary-text">{summaryDisplay}</p>
-            </div>
-          )}
         </div>
       </div>
     </div>

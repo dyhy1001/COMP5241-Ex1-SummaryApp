@@ -73,7 +73,7 @@ export async function GET(req: Request) {
   if (downloadPath) {
     const { data, error } = await supabase.storage
       .from(bucket)
-      .createSignedUrl(downloadPath, 60);
+      .createSignedUrl(downloadPath, 900);
 
     if (error || !data) {
       return NextResponse.json(
@@ -105,6 +105,7 @@ export async function GET(req: Request) {
   let documentsByPath = new Map<string, {
     document_name: string | null;
     tag: string[] | null;
+    note_taking: string | null;
     summary_text: string | null;
     summary_updated_at: string | null;
   }>();
@@ -112,7 +113,9 @@ export async function GET(req: Request) {
   if (storagePaths.length > 0) {
     const { data: documents, error: documentsError } = await supabase
       .from(documentsTable)
-      .select("storage_path, document_name, tag, summary_text, summary_updated_at")
+      .select(
+        "storage_path, document_name, tag, note_taking, summary_text, summary_updated_at"
+      )
       .in("storage_path", storagePaths);
 
     if (documentsError) {
@@ -128,6 +131,7 @@ export async function GET(req: Request) {
         {
           document_name: doc.document_name ?? null,
           tag: normalizeTagValue(doc.tag),
+          note_taking: doc.note_taking ?? null,
           summary_text: doc.summary_text ?? null,
           summary_updated_at: doc.summary_updated_at ?? null,
         },
@@ -143,6 +147,7 @@ export async function GET(req: Request) {
     created_at: item.created_at ?? null,
     updated_at: item.updated_at ?? null,
     tag: documentsByPath.get(`uploads/${item.name}`)?.tag ?? [],
+    note_taking: documentsByPath.get(`uploads/${item.name}`)?.note_taking ?? null,
     summary: documentsByPath.get(`uploads/${item.name}`)?.summary_text ?? null,
     summary_updated_at:
       documentsByPath.get(`uploads/${item.name}`)?.summary_updated_at ?? null,
@@ -258,6 +263,7 @@ export async function PATCH(req: Request) {
   const path = body?.path;
   const documentName = body?.documentName;
   const tagRaw = body?.tag;
+  const noteTaking = body?.note_taking;
 
   if (!path || typeof path !== "string") {
     return NextResponse.json(
@@ -266,7 +272,7 @@ export async function PATCH(req: Request) {
     );
   }
 
-  if (typeof documentName !== "string" || !documentName.trim()) {
+  if (documentName !== undefined && (typeof documentName !== "string" || !documentName.trim())) {
     return NextResponse.json(
       { ok: false, error: "Missing document name." },
       { status: 400 }
@@ -275,12 +281,39 @@ export async function PATCH(req: Request) {
 
   const tag = normalizeTagValue(tagRaw);
 
+  if (noteTaking !== undefined && typeof noteTaking !== "string") {
+    return NextResponse.json(
+      { ok: false, error: "Invalid note content." },
+      { status: 400 }
+    );
+  }
+
+  const updatePayload: {
+    document_name?: string;
+    tag?: string[];
+    note_taking?: string | null;
+  } = {};
+
+  if (documentName !== undefined) {
+    updatePayload.document_name = documentName.trim();
+  }
+  if (tagRaw !== undefined) {
+    updatePayload.tag = tag;
+  }
+  if (noteTaking !== undefined) {
+    updatePayload.note_taking = noteTaking;
+  }
+
+  if (Object.keys(updatePayload).length === 0) {
+    return NextResponse.json(
+      { ok: false, error: "No fields to update." },
+      { status: 400 }
+    );
+  }
+
   const { error } = await supabase
     .from(documentsTable)
-    .update({
-      document_name: documentName.trim(),
-      tag,
-    })
+    .update(updatePayload)
     .eq("storage_path", path);
 
   if (error) {

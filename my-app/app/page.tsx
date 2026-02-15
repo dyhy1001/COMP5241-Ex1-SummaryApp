@@ -64,6 +64,19 @@ export default function Home() {
   >("preview");
   const [noteDraft, setNoteDraft] = useState("");
   const [isSavingNote, setIsSavingNote] = useState(false);
+  const [translatedText, setTranslatedText] = useState<string | null>(null);
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [selectedLanguage, setSelectedLanguage] = useState("English");
+  const [isLanguageMenuOpen, setIsLanguageMenuOpen] = useState(false);
+
+  const languageOptions = [
+    "English",
+    "Chinese (Simplified)",
+    "Chinese (Traditional)",
+    "Korean",
+    "Japanese",
+    "French",
+  ];
 
   const totalSize = useMemo(() => {
     return files.reduce((acc, item) => acc + (item.size ?? 0), 0);
@@ -77,6 +90,7 @@ export default function Home() {
   }, [files, selectedPath]);
 
   const summaryDisplay = summaryText ?? selectedDocument?.summary ?? null;
+  const summaryViewText = translatedText ?? summaryDisplay;
 
   const filteredFiles = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -131,7 +145,7 @@ export default function Home() {
       return;
     }
     setIsUploading(true);
-    setStatus("Uploading to Supabase...");
+    setStatus("Uploading to Database...");
 
     try {
       const formData = new FormData();
@@ -239,7 +253,7 @@ export default function Home() {
         throw new Error(data?.error ?? "Preview failed.");
       }
       setPreviewUrl(data.url);
-      setPreviewExpiresAt(Date.now() + 15000);
+      setPreviewExpiresAt(Date.now() + 900000);
       setStatus("Preview ready.");
       setActiveView("preview");
     } catch (error) {
@@ -265,6 +279,10 @@ export default function Home() {
   useEffect(() => {
     setNoteDraft(selectedDocument?.note_taking ?? "");
   }, [selectedDocument?.note_taking]);
+
+  useEffect(() => {
+    setTranslatedText(null);
+  }, [summaryDisplay]);
 
   function startEditing(file: StorageFile) {
     setEditingPath(file.path);
@@ -339,14 +357,61 @@ export default function Home() {
     }
   }
 
+  async function handleTranslateSummary(language: string) {
+    if (!summaryDisplay) {
+      setStatus("No summary available to translate.");
+      return;
+    }
+    if (language === "English") {
+      setTranslatedText(null);
+      setStatus("Showing English summary.");
+      setIsLanguageMenuOpen(false);
+      return;
+    }
+    if (!language) {
+      setStatus("Select a target language.");
+      return;
+    }
+    setSelectedLanguage(language);
+    setIsTranslating(true);
+    setStatus("Translating summary...");
+
+    try {
+      const res = await fetch("/api/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: summaryDisplay,
+          targetLanguages: [language],
+        }),
+      });
+      const data = await readJsonSafely(res);
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.error ?? "Translation failed.");
+      }
+      const translated = data.translations?.[language] ?? null;
+      if (!translated) {
+        throw new Error("Translation missing from response.");
+      }
+      setTranslatedText(translated);
+      setStatus("Translation ready.");
+      setIsLanguageMenuOpen(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      setStatus(message);
+    } finally {
+      setIsTranslating(false);
+    }
+  }
+
   return (
     <div className="page">
       <header className="hero">
         <div>
-          <p className="hero-label">Supabase storage hub</p>
+          <p className="hero-label">PDF storage hub</p>
           <h1>AI Summary App</h1>
           <p className="hero-subtitle">
-            Upload PDF documents, manage your library, and hand off files to the
+            Upload PDF documents, manage your library, drop your note and hand off files to the
             summarizer pipeline.
           </p>
         </div>
@@ -372,7 +437,7 @@ export default function Home() {
             <div>
               <h2>Upload PDF</h2>
               <p className="panel-subtitle">
-                Files are stored in your Supabase bucket and listed below.
+                Files are stored in your database and listed below.
               </p>
             </div>
             <div className="upload-controls">
@@ -635,9 +700,31 @@ export default function Home() {
                         </p>
                       )}
                     </div>
+                    <div className="translation-control">
+                      <button
+                        className="btn btn-outline btn-small"
+                        onClick={() => setIsLanguageMenuOpen((open) => !open)}
+                        disabled={isTranslating || !summaryDisplay}
+                      >
+                        {isTranslating ? "Translating..." : "Translate"}
+                      </button>
+                      {isLanguageMenuOpen && (
+                        <div className="language-menu">
+                          {languageOptions.map((language) => (
+                            <button
+                              key={language}
+                              className="language-item"
+                              onClick={() => handleTranslateSummary(language)}
+                            >
+                              {language}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <p className="summary-text">
-                    {summaryDisplay ?? "No summary available yet."}
+                    {summaryViewText ?? "No summary available yet."}
                   </p>
                 </div>
               )}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 
 type StorageFile = {
   name: string;
@@ -68,6 +68,11 @@ export default function Home() {
   const [isTranslating, setIsTranslating] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState("English");
   const [isLanguageMenuOpen, setIsLanguageMenuOpen] = useState(false);
+  const [isUploadCollapsed, setIsUploadCollapsed] = useState(false);
+  const [isLibraryCollapsed, setIsLibraryCollapsed] = useState(true);
+  const [isPreviewCollapsed, setIsPreviewCollapsed] = useState(true);
+  const [isMobileMode, setIsMobileMode] = useState(false);
+  const previewPanelRef = useRef<HTMLDivElement>(null);
 
   const languageOptions = [
     "English",
@@ -137,6 +142,15 @@ export default function Home() {
 
   useEffect(() => {
     fetchFiles();
+  }, []);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobileMode(window.innerWidth <= 768);
+    };
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
   }, []);
 
   async function handleUpload() {
@@ -283,6 +297,17 @@ export default function Home() {
   useEffect(() => {
     setTranslatedText(null);
   }, [summaryDisplay]);
+
+  useEffect(() => {
+    if (selectedDocument) {
+      setIsUploadCollapsed(true);
+      setIsLibraryCollapsed(true);
+      setIsPreviewCollapsed(false);
+      setTimeout(() => {
+        previewPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 100);
+    }
+  }, [selectedDocument]);
 
   function startEditing(file: StorageFile) {
     setEditingPath(file.path);
@@ -434,12 +459,21 @@ export default function Home() {
       <div className="main-grid">
         <div className="left-column">
           <section className="panel upload-panel">
-            <div>
-              <h2>Upload PDF</h2>
-              <p className="panel-subtitle">
-                Files are stored in your database and listed below.
-              </p>
+            <div className="panel-header mobile-collapsible">
+              <button 
+                className="collapse-toggle"
+                onClick={() => setIsUploadCollapsed(!isUploadCollapsed)}
+              >
+                <span className={`toggle-arrow${isUploadCollapsed ? " collapsed" : ""}`}>▼</span>
+              </button>
+              <div>
+                <h2>Upload PDF</h2>
+                <p className="panel-subtitle">
+                  Files are stored in your database and listed below.
+                </p>
+              </div>
             </div>
+            {(!isMobileMode || !isUploadCollapsed) && (
             <div className="upload-controls">
               <label className="file-input">
                 <input
@@ -490,15 +524,26 @@ export default function Home() {
                 {isLoading ? "Refreshing..." : "Refresh"}
               </button>
             </div>
+            )}
           </section>
 
           <section className="panel library-panel">
-            <div>
-              <h2>Document library</h2>
-              <p className="panel-subtitle">
-                Select a PDF to preview or run the summarizer.
-              </p>
+            <div className="panel-header mobile-collapsible">
+              <button 
+                className="collapse-toggle"
+                onClick={() => setIsLibraryCollapsed(!isLibraryCollapsed)}
+              >
+                <span className={`toggle-arrow${isLibraryCollapsed ? " collapsed" : ""}`}>▼</span>
+              </button>
+              <div>
+                <h2>Document library</h2>
+                <p className="panel-subtitle">
+                  Select a PDF to preview or run the summarizer.
+                </p>
+              </div>
             </div>
+            {(!isMobileMode || !isLibraryCollapsed) && (
+            <>
             <label className="search-field">
               <span className="field-label">Search</span>
               <input
@@ -619,19 +664,31 @@ export default function Home() {
                 ))}
               </div>
             )}
+            </>
+            )}
           </section>
         </div>
 
         <div className="right-column">
-          <section className="panel preview-panel">
-            <div>
-              <h2>Preview</h2>
-              <p className="panel-subtitle">
-                {selectedDocument
-                  ? `Viewing ${selectedDocument.name}`
-                  : "Select a document to preview."}
-              </p>
+          <section className="panel preview-panel" ref={previewPanelRef}>
+            <div className="panel-header mobile-collapsible">
+              <button 
+                className="collapse-toggle"
+                onClick={() => setIsPreviewCollapsed(!isPreviewCollapsed)}
+              >
+                <span className={`toggle-arrow${isPreviewCollapsed ? " collapsed" : ""}`}>▼</span>
+              </button>
+              <div>
+                <h2>Preview</h2>
+                <p className="panel-subtitle">
+                  {selectedDocument
+                    ? `Viewing ${selectedDocument.name}`
+                    : "Select a document to preview."}
+                </p>
+              </div>
             </div>
+            {(!isMobileMode || !isPreviewCollapsed) && (
+            <>
             <div className="view-tabs">
               <button
                 className={`tab-button${
@@ -652,10 +709,19 @@ export default function Home() {
                 className={`tab-button${
                   activeView === "summary" ? " is-active" : ""
                 }`}
-                onClick={() => setActiveView("summary")}
-                disabled={!summaryDisplay}
+                onClick={() => {
+                  if (selectedDocument) {
+                    if (summaryDisplay) {
+                      setActiveView("summary");
+                    } else {
+                      handleSummarize(selectedDocument.path, selectedDocument.name);
+                      setActiveView("summary");
+                    }
+                  }
+                }}
+                disabled={!selectedDocument || isSummarizing}
               >
-                AI summary
+                {isSummarizing ? "Summarizing" : "AI summary"}
               </button>
               <button
                 className={`tab-button${
@@ -724,7 +790,7 @@ export default function Home() {
                     </div>
                   </div>
                   <p className="summary-text">
-                    {summaryViewText ?? "No summary available yet."}
+                    {summaryViewText ?? "Summarizing......Please refer to the status for updates"}
                   </p>
                 </div>
               )}
@@ -752,6 +818,8 @@ export default function Home() {
                 </div>
               )}
             </div>
+            </>
+            )}
           </section>
         </div>
       </div>

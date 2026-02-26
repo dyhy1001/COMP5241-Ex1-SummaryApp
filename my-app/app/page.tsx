@@ -158,6 +158,14 @@ export default function Home() {
       setStatus("Choose a PDF before uploading.");
       return;
     }
+    
+    // Validate file type
+    if (uploadFile.type !== "application/pdf" && !uploadFile.name.toLowerCase().endsWith(".pdf")) {
+      setStatus("Only PDF files are allowed. Please choose a valid PDF file.");
+      setUploadFile(null);
+      return;
+    }
+    
     setIsUploading(true);
     setStatus("Uploading to Database...");
 

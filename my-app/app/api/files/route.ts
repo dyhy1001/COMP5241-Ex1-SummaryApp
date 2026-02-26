@@ -172,6 +172,14 @@ export async function POST(req: Request) {
     );
   }
 
+  // Validate file type
+  if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+    return NextResponse.json(
+      { ok: false, error: "Only PDF files are allowed." },
+      { status: 400 }
+    );
+  }
+
   const desiredName =
     typeof documentNameRaw === "string" && documentNameRaw.trim()
       ? documentNameRaw

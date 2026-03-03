@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useState, useRef } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 type StorageFile = {
   name: string;
@@ -797,9 +799,11 @@ export default function Home() {
                       )}
                     </div>
                   </div>
-                  <p className="summary-text">
-                    {summaryViewText ?? "Summarizing......Please refer to the status for updates"}
-                  </p>
+                  <div className="summary-text summary-markdown">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {summaryViewText ?? "Summarizing......Please refer to the status for updates"}
+                    </ReactMarkdown>
+                  </div>
                 </div>
               )}
               {activeView === "note" && (

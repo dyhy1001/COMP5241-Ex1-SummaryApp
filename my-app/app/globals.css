@@ -298,6 +298,79 @@ p {
   color: var(--ink-700);
 }
 
+.summary-markdown {
+  white-space: normal;
+  line-height: 1.7;
+}
+
+.summary-markdown > *:first-child {
+  margin-top: 0;
+}
+
+.summary-markdown > *:last-child {
+  margin-bottom: 0;
+}
+
+.summary-markdown p,
+.summary-markdown ul,
+.summary-markdown ol,
+.summary-markdown blockquote,
+.summary-markdown pre,
+.summary-markdown table {
+  margin: 0 0 12px;
+}
+
+.summary-markdown h1,
+.summary-markdown h2,
+.summary-markdown h3,
+.summary-markdown h4,
+.summary-markdown h5,
+.summary-markdown h6 {
+  margin: 16px 0 10px;
+  color: var(--ink-900);
+  line-height: 1.35;
+}
+
+.summary-markdown ul,
+.summary-markdown ol {
+  padding-left: 22px;
+}
+
+.summary-markdown code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.92em;
+}
+
+.summary-markdown pre {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--mist-100);
+  overflow-x: auto;
+}
+
+.summary-markdown pre code {
+  display: block;
+  white-space: pre;
+}
+
+.summary-markdown :not(pre) > code {
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--mist-200);
+}
+
+.summary-markdown a {
+  color: var(--sea-600);
+  text-decoration: underline;
+}
+
+.summary-markdown blockquote {
+  margin-left: 0;
+  padding-left: 12px;
+  border-left: 3px solid var(--mist-200);
+  color: var(--ink-500);
+}
+
 .btn-danger {
   background: rgba(194, 60, 84, 0.12);
   color: var(--rose-500);
